@@ -1,7 +1,11 @@
 const User = require("../models/user.model");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const fs = require("fs");
+const path = require("path")
 const { v4: uuidv4 } = require('uuid');
+const { sendEmail } = require("../config/email")
+
 
 //User SignUp
 exports.signup = async (req, res) => {
@@ -25,6 +29,18 @@ exports.signup = async (req, res) => {
         password: hashPassword,
         otp
       });
+      // /Users/mac/Desktop/Workspace/forgotAndResetPassword/views/signup.html
+
+      const htmlTemplate = fs.readFileSync(
+        path.join(__dirname, "../views/signup.html"),
+
+        "utf-8"
+      );
+      const emailTemplate = htmlTemplate
+        .replace("{{firstName}}", firstName)
+        .replace("{{otp}}", otp);
+  
+        await sendEmail(emailTemplate, "Your Otp Has Been Sent", email);
       return res
         .status(201)
         .json({ data: newUser, msg: "User created successfully" });
@@ -52,18 +68,34 @@ exports.signup = async (req, res) => {
        const isMatch = await bcrypt.compare(password, user.password);
        if (!isMatch) {
         return res.status(400).json({msg: "Invalid credentials"});
-       }
+        }
+        const payload = {
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+          id: user._id,
+        };
        //Token
-       const Token = jwt.sign({ id:user._id }, process.env.JWT_SECRET, {
+       const Token = jwt.sign({ payload }, process.env.JWT_SECRET, {
         expiresIn: "1d",
        });
-       return res.status(200).json({ msg: "User logged in successfully" });
+        const htmlTemplate = fs.readFileSync(
+          path.join(__dirname, "../views/login-success.html"),
+          "utf-8"
+        );
+        const emailTemplate = htmlTemplate
+          .replace("{{firstName}}", user.firstName);
+
+        await sendEmail(emailTemplate, "You Just Logged In", email);
+        return res
+          .status(200)
+          .json({ msg: "User logged in successfully", payload, Token });
       } catch (error) {
         console.error(error.message);
         return res.status(500).json({ msg: "Server Error" });
-        }
-    };
-
+      }
+  };
+       
     // Verify otp
 
     exports.verifyOtp = async (req, res) => {
@@ -76,6 +108,7 @@ exports.signup = async (req, res) => {
         if (!user) {
           return res.status(404).json({ msg: "Invalid OTP" });
         }
+        
         if (user.isVerified) {
           return res.status(400).json({ msg: "User already verified" });
         }
@@ -104,38 +137,38 @@ exports.signup = async (req, res) => {
       }
       const otp = uuidv4().substring(0, 6).toUpperCase(); // Generate 6-character OTP
       user.otp = otp
-  //     await user.save();
-  //     return res.status(200).json({ msg: "OTP sent to your email", data: user });
-  //   } catch (error) {
-  //     console.error(error.message);
-  //     return res.status(500).json({ msg: "Server Error" });
-  //   }
-  // };
+      await user.save();
+      return res.status(200).json({ msg: "OTP sent to your email", data: user });
+    } catch (error) {
+      console.error(error.message);
+      return res.status(500).json({ msg: "Server Error" });
+    }
+  };
   
-  // // Reset Password
+  // Reset Password
   
-  // exports.resetPassword = async (req, res) => {
-  //   const {otp} = req.query;
-  //   const { newPassword, confirmPassword } = req.body;
-  //   try {
-  //     if (!newPassword || !confirmPassword) {
-  //       return res.status(400).message('Please Fill All Fields');
-  //     }
-  //     const user = await User.findOne({otp})
-  //     if (!user) {
-  //       return res.status(404).json({ msg: 'Invalid OTP' });
-  //     }
-  //     if (newPassword !== confirmPassword) {
-  //       return res.status(400).json({ msg: 'Passwords do not match' });
-  //     }
+  exports.resetPassword = async (req, res) => {
+    const {otp} = req.query;
+    const { newPassword, confirmPassword } = req.body;
+    try {
+      if (!newPassword || !confirmPassword) {
+        return res.status(400).message('Please Fill All Fields');
+      }
+      const user = await User.findOne({otp})
+      if (!user) {
+        return res.status(404).json({ msg: 'Invalid OTP' });
+      }
+      if (newPassword !== confirmPassword) {
+        return res.status(400).json({ msg: 'Passwords do not match' });
+      }
   
-  //     const hashPassword = await bcrypt.hash(newPassword, 10);
-  //     user.password = hashPassword;
-  //     user.otp = null;
-  //     await user.save();
-  //     return res.status(200).json({ msg: 'Password Reset Successfully' });
-  //   } catch (error) {
-  //     console.error(error.message);
-  //     return res.status(500).json({ msg: "Server Error" });
-  //   }
-  // }
+      const hashPassword = await bcrypt.hash(newPassword, 10);
+      user.password = hashPassword;
+      user.otp = null;
+      await user.save();
+      return res.status(200).json({ msg: 'Password Reset Successfully' });
+    } catch (error) {
+      console.error(error.message);
+      return res.status(500).json({ msg: "Server Error" });
+    }
+  }
